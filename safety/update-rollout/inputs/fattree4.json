@@ -1,0 +1,7 @@
+{
+  "topology": "topologies/fattree4.json",
+  "service_nodes": ["13", "14", "15", "16", "17", "18", "19"],
+  "front_end": "12",
+  "max_failure": 2,
+  "min_reachable": 1
+}

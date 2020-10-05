@@ -1,0 +1,7 @@
+{
+  "topology": "topologies/test.json",
+  "service_nodes": ["b", "c", "d", "e"],
+  "front_end": "a",
+  "max_failure": 2,
+  "min_reachable": 1
+}

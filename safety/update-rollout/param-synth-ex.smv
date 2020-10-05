@@ -1,0 +1,156 @@
+-- Ali Kheradmand (kheradm2@illinois.edu)
+/--
+Topology:
+        B
+      /   \
+E -- A     C
+      \   /
+        D
+A service is hosted in this network. "A" is the service front-end. All other nodes are service nodes.
+The front-end must be able to reach to at least "m" service nodes for the service to function, otherwise the service breaks.
+There is a software update rollout loop that brings service nodes down, update them, and then bring them up again.
+The update rollout loop is allowed to bring "p" service nodes down simultaneously.
+There are also link failures happening non-deterministically (up to "k" failures at the same time).
+The topology recomputes reachability from the front front-end to each service node initially and after each link failure.
+The property that we want to hold is the that service is up during the update rollout
+i.e G (when topology is done (re)computing reachablity -> number of reachable and up service nodes >= m)
+This property can break depending on the values of "p","m", and "k" when we combine the update rollout with link failures.
+(e.g. for "p"=1, "m"=1, "k"=2)
+We are also interested in synthesising safe parameters for the property to be valid. For example we might be interested
+in a safe parameter for "p" (preferably the maximum of such "p") given "m"=2, "k"=1.
+--/
+MODULE link(number, link_to_fail, failable)
+VAR
+status : {UP,DOWN};
+
+ASSIGN
+init(status) :=  UP;
+next(status) :=
+    case
+        failable & link_to_fail = number : DOWN;
+        TRUE: status;
+    esac;
+
+DEFINE
+just_failed := failable & link_to_fail = number & status = UP;
+
+MODULE topology
+VAR
+r_a : boolean;
+r_b : boolean;
+r_c : boolean;
+r_d : boolean;
+r_e : boolean;
+
+DEFINE
+reset := just_failed;
+done := !reset & next(r_a) = r_a & next(r_b) = r_b & next(r_c) = r_c & next(r_d) = r_d & next(r_e) = r_e;
+
+ASSIGN
+init(r_a) := TRUE;
+init(r_b) := FALSE;
+init(r_c) := FALSE;
+init(r_d) := FALSE;
+init(r_e) := FALSE;
+
+next(r_a) := reset ? TRUE : r_a | (r_b & link_a_b.status = UP) | (r_d & link_a_d.status = UP) | (r_e & link_a_e.status = UP);
+next(r_b) := reset ? FALSE : r_b | (r_a & link_a_b.status = UP) | (r_c & link_b_c.status = UP);
+next(r_c) := reset ? FALSE : r_c | (r_b & link_b_c.status = UP) | (r_d & link_c_d.status = UP);
+next(r_d) := reset ? FALSE : r_d | (r_c & link_c_d.status = UP) | (r_a & link_a_d.status = UP);
+next(r_e) := reset ? FALSE : r_e | (r_a & link_a_e.status = UP);
+
+VAR
+link_a_b : link(l_a_b, link_to_fail, failable);
+link_a_d : link(l_a_d, link_to_fail, failable);
+link_a_e : link(l_a_e, link_to_fail, failable);
+link_b_c : link(l_b_c, link_to_fail, failable);
+link_c_d : link(l_c_d, link_to_fail, failable);
+
+link_to_fail : {l_a_b , l_a_d , l_a_e , l_b_c , l_c_d};
+
+DEFINE
+failable := failure_count < k;
+just_failed := link_a_b.just_failed | link_a_d.just_failed | link_a_e.just_failed | link_b_c.just_failed | link_c_d.just_failed;
+failure_count := (link_a_b.status = DOWN ? 0ud3_1 : 0ud3_0) + (link_a_d.status = DOWN ? 0ud3_1 : 0ud3_0) + (link_a_e.status = DOWN ? 0ud3_1 : 0ud3_0) + (link_b_c.status = DOWN ? 0ud3_1 : 0ud3_0) + (link_c_d.status = DOWN ? 0ud3_1 : 0ud3_0);
+
+FROZENVAR
+k : unsigned word[3];
+
+ASSIGN
+next(link_to_fail) :=
+    case
+        failable : {l_a_b , l_a_d , l_a_e , l_b_c , l_c_d};
+        TRUE: link_to_fail;
+    esac;
+
+
+MODULE node(number, more_updates, device_to_update)
+VAR
+status : {UP,DOWN};
+updated : boolean;
+
+ASSIGN
+init(status) := UP;
+init(updated) := FALSE;
+
+next(status) :=
+    case
+        status = DOWN: {DOWN,UP};
+        --status = DOWN & !more_updates : UP;
+        updatable : DOWN;
+        TRUE : status;
+    esac;
+
+next(updated) := updatable | updated;
+
+DEFINE
+updatable :=  more_updates & device_to_update = number & !updated;
+
+
+
+MODULE main
+VAR
+t : topology;
+
+node_b : node(n_b, more_updates, device_to_update);
+node_c : node(n_c, more_updates, device_to_update);
+node_d : node(n_d, more_updates, device_to_update);
+node_e : node(n_e, more_updates, device_to_update);
+device_to_update : {n_b , n_c , n_d , n_e};
+
+
+
+DEFINE
+R_b := node_b.status = UP & t.r_b;
+R_c := node_c.status = UP & t.r_c;
+R_d := node_d.status = UP & t.r_d;
+R_e := node_e.status = UP & t.r_e;
+
+reachable_count := (R_b ? 0ud3_1 : 0ud3_0) + (R_c ? 0ud3_1 : 0ud3_0) + (R_d ? 0ud3_1 : 0ud3_0) + (R_e ? 0ud3_1 : 0ud3_0);
+updated_count := (node_b.updated ? 0ud3_1 : 0ud3_0) + (node_c.updated ? 0ud3_1 : 0ud3_0) + (node_d.updated ? 0ud3_1 : 0ud3_0) + (node_e.updated ? 0ud3_1 : 0ud3_0);
+down_count := (node_b.status = DOWN ? 0ud3_1 : 0ud3_0) + (node_c.status = DOWN ? 0ud3_1 : 0ud3_0) + (node_d.status = DOWN ? 0ud3_1 : 0ud3_0) + (node_e.status = DOWN ? 0ud3_1 : 0ud3_0);
+more_updates := updated_count < 0ud3_4 & down_count < p;
+
+
+ASSIGN
+next(device_to_update) :=
+	case
+		more_updates :  {n_b , n_c , n_d , n_e};
+		TRUE : device_to_update;
+	esac;
+
+FROZENVAR
+m : unsigned word[3];
+p : unsigned word[3];
+p0 : boolean;
+p1 : boolean;
+p2 : boolean;
+
+
+INVAR
+p = (p2 ? 0b1_1 : 0b1_0) :: (p0 ? 0b1_1 : 0b1_0) :: (p1 ? 0b1_1 : 0b1_0) ;
+
+LTLSPEC (m = 0ud3_1 & p = 0ud3_1 & t.k = 0ud3_2) -> (G(t.done -> reachable_count >= m));
+
+PARSYNTH
+test := {p0, p1, p2 | VALID ((m = 0ud3_1 & t.k = 0ud3_1) -> (G (t.done -> reachable_count >= m)))};

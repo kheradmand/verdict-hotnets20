@@ -1,0 +1,111 @@
+/--
+Topology
+       --- r1 ---
+      |    |     |
+      r2_  r4   r3
+      |  \_|     |
+      s1   s2   s3
+
+Load is modeled as the number of applications using a router or server
+The latency per load is symbolic matrice.
+app_a would choose between s1 and s2 (whichever has lower overall latency -- i.e router latency + server latency)
+abb_b would choose between s2 and s3 in a similar fasion.
+There might be a sudden non-deterministic incrase in load in one of the routers.
+The property that we want to verify is that system stabilizes (F G (applications stay where they are)).
+For certain latency per load matrices the property does not hold. 
+--/
+
+
+MODULE main
+DEFINE
+	
+	-- hardcoded with the following knowledge of topology in mind:
+	-- if app_a is on s3 then path is r1 -> r3 -> s3 -> app_a
+	-- if app_a is on s2 then path is r1 -> r2 -> s2 -> app_a
+	-- if app_b is on s1 then path is r1 -> r2 -> s1 -> app_b
+	-- if app_b is on s2 then path is r1 -> r4 -> s2 -> app_b
+	
+	r1_latency := r1_x + r1_c * (a_load + b_load);
+	r2_latency := r2_x + r2_c * (a_load * a_s1w + b_load * b_s2w);
+	r3_latency := r3_x + r3_c * (a_load * a_s2w);
+	r4_latency := r4_x + r4_c * (b_load * b_s3w);
+	s1_latency_a := s1_xa + s1_ca * (a_load * a_s1w);
+	s2_latency_a := s2_xa + s2_ca * (a_load * a_s2w + b_load * b_s2w);
+	s2_latency_b := s2_xb + s2_cb * (a_load * a_s2w + b_load * b_s2w);
+	s3_latency_b := s3_xb + s3_cb * (b_load * b_s3w);
+
+	
+	-- considering the effect of moving the app on target ?
+    a_s1_latency := r1_latency  + r2_latency  + s1_latency_a ;
+    a_s2_latency := r1_latency  + r3_latency  + s2_latency_a ;
+    b_s2_latency := r1_latency  + r2_latency  + s2_latency_b ;
+    b_s3_latency := r1_latency  + r4_latency  + s3_latency_b ;
+
+    a_s1_s2_extra_latency := (r1_c + r3_c + s2_ca) * a_load * a_s1w;
+    a_s2_s1_extra_latency := (r1_c + r2_c + s1_ca) * a_load * a_s2w;
+    b_s3_s2_extra_latency := (r1_c + r2_c + s2_cb) * b_load * b_s3w;
+    b_s2_s3_extra_latency := (r1_c + r4_c + s3_cb) * b_load * b_s2w;
+
+
+	
+	stable := !(aa | bb | cc | dd);
+
+VAR
+a_s1w : real;
+b_s3w : real;
+
+DEFINE
+a_s2w := (1 - a_s1w);
+b_s2w := (1 - b_s3w);
+
+FROZENVAR
+r1_c : real; r2_c : real; r3_c : real; r4_c : real;
+s1_ca : real; s2_ca : real; s3_ca : real;
+s1_cb : real; s2_cb : real; s3_cb : real;
+r1_x : real; r2_x : real; r3_x : real; r4_x : real;
+s1_xa : real; s2_xa : real; s3_xa : real;
+s1_xb : real; s2_xb : real; s3_xb : real;
+
+a_load : real;
+b_load : real;
+
+INVAR
+a_load >= 0 & b_load >= 0 &
+r1_x = 0 & r2_x > 0 & r3_x > 0 & r4_x > 0 &
+s1_xa >= 0 & s2_xa >= 0 & s3_xa >= 0 &
+s1_xb >= 0 & s2_xb >= 0 & s3_xb >= 0 &
+r1_c = 0 & r2_c > 0 & r3_c > 0 & r4_c > 0 &
+s1_ca >= 0 & s2_ca >= 0 & s3_ca >= 0 &
+s1_cb >= 0 & s2_cb >= 0 & s3_cb >= 0 ;
+
+DEFINE
+aa := a_s1w = 1 & a_s1_latency > a_s2_latency + a_s1_s2_extra_latency;
+bb := a_s1w = 0 & a_s1_latency + a_s2_s1_extra_latency < a_s2_latency;
+cc := b_s3w = 1 & b_s3_latency > b_s2_latency + b_s3_s2_extra_latency;
+dd := b_s3w = 0 & b_s3_latency + b_s2_s3_extra_latency < b_s2_latency;
+VAR
+turn : {a,b};
+ASSIGN
+	init(a_s1w) := 1;
+	init(b_s3w) := 1;
+
+    next(a_s1w) :=
+        case
+            turn != a : a_s1w;
+            aa: 0;
+            bb : 1;
+            TRUE: a_s1w;
+        esac;
+
+    next(b_s3w) :=
+        case
+            turn != b : b_s3w;
+            cc : 0;
+            dd : 1;
+            TRUE: b_s3w;
+        esac;
+
+    next(turn) := turn = a ? b : a;
+
+LTLSPEC F G stable
+LTLSPEC (!unstable) -> (F G (!unstable))

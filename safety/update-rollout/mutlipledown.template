@@ -1,0 +1,110 @@
+MODULE link(number, link_to_fail, failable)
+VAR
+status : {UP,DOWN};
+
+ASSIGN
+init(status) :=  UP;
+next(status) :=
+    case
+        failable & link_to_fail = number : DOWN;
+        TRUE: status;
+    esac;
+
+DEFINE
+just_failed := failable & link_to_fail = number & status = UP;
+
+MODULE topology
+VAR
+%R_DECS%
+
+DEFINE
+reset := just_failed;
+done := !reset & %DONE_DEF%;
+
+ASSIGN
+%R_INIT%
+
+%R_NEXT%
+
+VAR
+%LINK_DECS%
+
+link_to_fail : %LINKS_TO_FAIL%;
+
+DEFINE
+failable := failure_count < k;
+just_failed := %JUST_FAILED%;
+failure_count := %FAILURE_COUNT%;
+
+FROZENVAR
+k : unsigned word[8];
+
+ASSIGN
+next(link_to_fail) :=
+    case
+        failable : %LINKS_TO_FAIL%;
+        TRUE: link_to_fail;
+    esac;
+
+
+MODULE node(number, more_updates, device_to_update)
+VAR
+status : {UP,DOWN};
+updated : boolean;
+
+ASSIGN
+init(status) := UP;
+init(updated) := FALSE;
+
+next(status) :=
+    case
+        status = DOWN: {DOWN,UP};
+        --status = DOWN & !more_updates : UP;
+        updatable : DOWN;
+        TRUE : status;
+    esac;
+
+next(updated) := updatable | updated;
+
+DEFINE
+updatable :=  more_updates & device_to_update = number & !updated;
+
+
+
+MODULE main
+VAR
+t : topology;
+
+%NODE_DECS%
+device_to_update : %DEVICES_TO_UPDATE%;
+
+
+
+DEFINE
+%REACHABILITY_DEFS%
+
+reachable_count := %REACHABLE_COUNT%;
+updated_count := %UPDATED_COUNT%;
+down_count := %DOWN_COUNT%;
+more_updates := updated_count < %SERVICE_NODES_COUNT% & down_count < p;
+
+
+ASSIGN
+next(device_to_update) :=
+	case
+		more_updates :  %DEVICES_TO_UPDATE%;
+		TRUE : device_to_update;
+	esac;
+
+FROZENVAR
+m : unsigned word[8];
+p : unsigned word[8];
+
+INVAR
+m = 0ud8_1 &
+p = 0ud8_1 &
+t.k = 0ud8_2;
+
+LTLSPEC G(t.done -> reachable_count >= %MIN_REACHABLE%);
+
+
